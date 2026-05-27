@@ -1,0 +1,34 @@
+# # === setuptools ===
+[build-system]
+# 声明构建所需的工具
+requires = ["setuptools>=61.0", "wheel"]
+# 指定构建后端
+build-backend = "setuptools.build_meta"
+
+[project]
+# 【必填】PyPI上的包名，全网唯一
+name = "ldpy.base"
+# 【必填】版本号，遵循语义化版本，例如0.1.0
+version = "0.0.1.dev2"
+# 包的作者信息
+authors = [
+    { name="distroy", email="distroy@live.com" },
+]
+# 包的描述文字
+description = "No description"
+# 指定README文件，内容会显示在PyPI项目主页上
+# readme = "README.md"
+# 指定开源许可证
+# license = { text = "MIT" }
+# 声明项目依赖的三方库
+dependencies = [
+    "requests>=2.25.0",
+    'pywin32>=300; sys_platform == "win32"',  # 条件依赖示例
+]
+# 定义命令行入口，实现pip安装后即可使用自定义命令
+# [project.scripts]
+# your-command = "your_package.main:cli"
+
+# 配置需要打包的Python代码路径
+[tool.setuptools.packages.find]
+where = ["src"]  # 若代码在src目录下
