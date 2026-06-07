@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 # 【必填】PyPI上的包名，全网唯一
 name = "ldpy.base"
 # 【必填】版本号，遵循语义化版本，例如0.1.0
-version = "0.0.1.dev3"
+version = "0.0.1"
 # 包的作者信息
 authors = [
     { name="distroy", email="distroy@live.com" },
@@ -23,6 +23,7 @@ description = "No description"
 # 声明项目依赖的三方库
 dependencies = [
     "requests>=2.25.0",
+    "setproctitle>=1.3.7",
     'pywin32>=300; sys_platform == "win32"',  # 条件依赖示例
 ]
 # 定义命令行入口，实现pip安装后即可使用自定义命令
