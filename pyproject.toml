@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 # 【必填】PyPI上的包名，全网唯一
 name = "ldpy.base"
 # 【必填】版本号，遵循语义化版本，例如0.1.0
-version = "0.0.1.dev3"
+version = "0.0.1"
 # 包的作者信息
 authors = [
     { name="distroy", email="distroy@live.com" },
