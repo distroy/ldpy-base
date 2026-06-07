@@ -23,6 +23,7 @@ description = "No description"
 # 声明项目依赖的三方库
 dependencies = [
     "requests>=2.25.0",
+    "setproctitle>=1.3.7",
     'pywin32>=300; sys_platform == "win32"',  # 条件依赖示例
 ]
 # 定义命令行入口，实现pip安装后即可使用自定义命令
