@@ -29,7 +29,8 @@ class CallWorkerBase(object):
         n = cls.name()
         key0 = f'{n.upper()}_BACKLOG'
         key1 = 'BACKLOG'
-        backlog = ldenv.get_as_int(key0) or ldenv.get_as_int(key1) or 0
+        backlog = ldenv.get_as_int(key0) or ldenv.get_as_int(key1)
+        backlog = max(backlog, 0)
         logging.info(f'get call worker listen backlog succ. worker:{n}, '
                      f'backlog:{backlog}')
         return backlog
@@ -38,7 +39,8 @@ class CallWorkerBase(object):
     def worker_num(cls):
         n = cls.name()
         key = f'{n.upper()}_WORKER_NUM'
-        num = ldenv.get_as_int(key, 1)
+        num = ldenv.get_as_int(key)
+        num = max(num, 1)
         logging.info(f'get call worker num succ. worker:{n}, num:{num}')
         return num
 
@@ -47,8 +49,8 @@ class CallWorkerBase(object):
         n = cls.name()
         key0 = f'{n.upper()}_START_TIMEOUT'
         key1 = 'START_TIMEOUT'
-        timeout = ldenv.get_as_int(key0) or ldenv.get_as_int(
-            key1) or DEFAULT_START_TIMEOUT
+        timeout = ldenv.get_as_int(key0) or ldenv.get_as_int(key1)
+        timeout = timeout if timeout > 0 else DEFAULT_START_TIMEOUT
         logging.info(f'get call worker start timeout succ. worker:{n}, '
                      f'timeout:{timeout}')
         return timeout
