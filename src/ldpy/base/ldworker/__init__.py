@@ -8,6 +8,7 @@
 import logging
 from .. import ldenv
 from .call_client import new_call
+from .call_worker import PICKLER
 
 DEFAULT_START_TIMEOUT = 600
 
@@ -58,4 +59,5 @@ __all__ = [
     'DEFAULT_START_TIMEOUT',
     'new_call',
     'CallWorkerBase',
+    'PICKLER',
 ]
