@@ -1,0 +1,23 @@
+src/ldpy/base/ldsync/lru.py
+  s_184f40843eb64f::t_f4fec4b227b715 17
+  s_184f40843eb64f::t_7e75195febb9ab 18-19
+  s_184f40843eb64f::t_5cff6efbcea95b 31,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9a3d6661e45a80e74ff3fbc3a441e8381347a747",
+  "prompts": {},
+  "sessions": {
+    "s_184f40843eb64f": {
+      "agent_id": {
+        "tool": "trae",
+        "id": "6a3c9fb463c148cb47733507",
+        "model": "openrouter-3o__dev"
+      },
+      "human_author": "distroy <distroy@live.com>"
+    }
+  },
+  "attestation_metadata": {},
+  "remote_transcripts": {}
+}
