@@ -35,7 +35,7 @@ class CallWorker(Protocol[P, R]):
 
 
 class CallMidware(Protocol[R]):
-    def __call__(self, *args, next: 'Callable[..., R]', **kwargs) -> 'R':
+    def __call__(self, next: 'Callable[..., R]', *args, **kwargs) -> 'R':
         ...
 
 
@@ -81,10 +81,13 @@ class CallBase(Generic[P, R]):
     def add_client_midware(self, mw: 'CallMidware[R]'):
         self._client_midwares.append(mw)
 
-    def _build_process_func(self, func: 'Callable[..., R]', mws: 'List[CallMidware[R]]'):
-        i = len(mws)
+    def _build_process_func(self, func: 'Callable[P, R]', mws: 'List[CallMidware[R]]') -> 'Callable[P, R]':
         def get_next_func(next, mw):
-            return lambda *args, **kwargs: mw(*args, next=next, **kwargs)
+            def next_func(*args: 'P.args', **kwargs: 'P.kwargs'):
+                return mw(next, *args, **kwargs)
+            return next_func
+
+        i = len(mws)
         while i > 0:
             i -= 1
             mw = mws[i]

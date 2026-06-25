@@ -24,11 +24,11 @@ class TestWorker(CallWorkerBase):
         return a / b, a % b
 
 
-def server_midware(*args, next: 'Callable', **kwargs):
+def server_midware(next: 'Callable', *args, **kwargs):
     with ldlog.WithLog('server_midware'):
         return next(*args, **kwargs)
 
-def client_midware(*args, next: 'Callable', **kwargs):
+def client_midware(next: 'Callable', *args, **kwargs):
     with ldlog.WithLog('client_midware'):
         return next(*args, **kwargs)
 
