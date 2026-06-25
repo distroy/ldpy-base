@@ -44,6 +44,7 @@ def main():
     cli.connect()
 
     locals = {'cli': cli}
+    cli.process
     log('cli.process(1, 2)', locals=locals)
     log('cli.process(a=1, b=0)', locals=locals)
 

@@ -17,15 +17,21 @@ from typing import Generic, TypeVar
 import psutil
 import setproctitle
 
+try:
+    from typing import ParamSpec
+except ImportError:
+    from typing_extensions import ParamSpec
+
 from .. import ldlog
 from . import conn, call_worker
 
 
-RES = TypeVar('RES')
+P = ParamSpec('P')
+R = TypeVar('R')
 
 
-class Service(Generic[RES]):
-    def __init__(self, worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[RES]'):
+class Service(Generic[P, R]):
+    def __init__(self, worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[P, R]'):
         super().__init__()
 
         self._base = base
@@ -121,19 +127,19 @@ class Service(Generic[RES]):
         req = call_worker.CallRequest.decode(req_raw)
 
         if req.command == call_worker.CMD_INIT:
-            rsp = call_worker.CallResponse[RES]()
+            rsp = call_worker.CallResponse[R]()
         elif req.command == call_worker.CMD_CALL:
             rsp = self._process_request(req)
         else:
             msg = f'invalid command. cmd:{req.command}, worker:{self._name}'
             logging.error(msg)
             exc = Exception(msg)
-            rsp = call_worker.CallResponse[RES](exc=exc)
+            rsp = call_worker.CallResponse[R](exc=exc)
 
         rsp_raw = call_worker.CallResponse.encode(rsp)
         c.send(rsp_raw)
 
-    def _process_request(self, req: 'call_worker.CallRequest') -> 'call_worker.CallResponse[RES]':
+    def _process_request(self, req: 'call_worker.CallRequest') -> 'call_worker.CallResponse[R]':
         logid = self._logid
 
         with ldlog.WithLog(f'call worker process [{self._name}]'):
@@ -141,14 +147,14 @@ class Service(Generic[RES]):
                 # res = self._worker.process(*req.args, **req.kwargs)
                 res = self._process_func(*req.args, **req.kwargs)
                 logging.info(f'{logid} process request succ')
-                return call_worker.CallResponse[RES](res=res)
+                return call_worker.CallResponse[R](res=res)
 
             except Exception as exc:
                 logging.error(f'{logid} process request panic', exc_info=exc)
-                return call_worker.CallResponse[RES](exc=exc)
+                return call_worker.CallResponse[R](exc=exc)
 
 
-def start(worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[RES]') -> 'int':
+def start(worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[P, R]') -> 'int':
     pid = os.fork()
     if pid > 0:
         # in parent
