@@ -9,8 +9,15 @@ import functools
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, Tuple, TypeVar
 
+try:
+    from typing import ParamSpec
+except ImportError:
+    from typing_extensions import ParamSpec
+
+P = ParamSpec('P')
+T = TypeVar('T')
 
 class Lru(object):
     def __init__(self, size: 'int' = 128, ttl: 'int' = 60, log_interval_times=0):
@@ -21,9 +28,9 @@ class Lru(object):
         self.hits = 0
         self.misses = 0
 
-    def __call__(self, func: Callable) -> Callable:
+    def __call__(self, func: 'Callable[P, T]') -> 'Callable[P, T]':
         @functools.wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: 'P.args', **kwargs: 'P.kwargs') -> 'T':
             total = self.hits + self.misses
             if self.log_interval_times > 0 and total > 0 and (total % self.log_interval_times) == 0:
                 # print(f"hit cache rate: {self.cache_info()}")
@@ -45,13 +52,13 @@ class Lru(object):
             self._set_cache(key, result)
             return result
 
-        wrapper.cache = self
+        setattr(wrapper, 'lru', self)
         return wrapper
 
-    def _make_key(self, args, kwargs) -> tuple:
+    def _make_key(self, args, kwargs) -> 'Tuple':
         return (args, tuple(sorted(kwargs.items())))
 
-    def _get_key(self, key) -> Tuple[Any, bool]:
+    def _get_key(self, key) -> 'Tuple[Any, bool]':
         if key not in self._cache:
             return None, False
 
@@ -67,7 +74,7 @@ class Lru(object):
         if len(self._cache) > self.maxsize:
             self._cache.popitem(last=False)
 
-    def cache_info(self) -> dict:
+    def cache_info(self) -> 'dict':
         """获取缓存信息"""
         return {
             'size': len(self._cache),
@@ -86,7 +93,7 @@ if __name__ == "__main__":
     __c = 0
 
     @Lru(ttl=2,log_interval_times=16)
-    def test(a, b):
+    def test(a: 'int', b: 'int'):
         global __c
         __c += 1
         return a * b + __c
@@ -99,4 +106,4 @@ if __name__ == "__main__":
     print(f' === test(1, 2): {test(1, 2)}')
     print(f' === test(2, 3): {test(2, 3)}')
     print()
-    print(f' === cache info: {test.cache.cache_info()}')
+    print(f' === cache info: {test.lru.cache_info()}')
