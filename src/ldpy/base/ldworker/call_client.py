@@ -29,9 +29,11 @@ class CallClientImpl(call_worker.CallBase[RES]):
         self._logid = f'[client-{self._name}:{pid}]'
 
         self._process_func = self._process
+        self._start_time = 0
 
     def start(self):
         call_master.start(self)
+        self._start_time = time.time()
 
     def connect(self):
         logid = self._logid
@@ -40,9 +42,9 @@ class CallClientImpl(call_worker.CallBase[RES]):
         self._process_func = self._build_process_func(self._process, self._client_midwares)
 
         try:
-            now = time.time()
+            start_time = self._start_time or time.time()
             timeout = self._worker_cls.start_timeout()
-            ddl = now + timeout
+            start_ddl = start_time + timeout
             while True:
                 try:
                     c = self._connect(False)
@@ -59,7 +61,7 @@ class CallClientImpl(call_worker.CallBase[RES]):
                     return
 
                 except Exception as exc:
-                    if time.time() < ddl:
+                    if time.time() < start_ddl:
                         continue
 
                     logging.error(f'{logid} connect to call worker panic.',
