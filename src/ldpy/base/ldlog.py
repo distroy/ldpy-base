@@ -31,11 +31,11 @@ class WithLog(object):
 
     def __enter__(self):
         self._begin = time.time()
-        self._log_func(f' === do {self._name} begin', stacklevel=2)
+        self._log_func(f' === with log begin. name:{self._name}', stacklevel=2)
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
         cost = time.time() - self._begin
-        self._log_func(f' === do {self._name} end. cost:{cost}s', stacklevel=2,
+        self._log_func(f' === with log end. name:{self._name}, cost:{cost}s', stacklevel=2,
                        exc_info=exc_value)
         if self._ignore_exc:
             return True
