@@ -12,7 +12,7 @@ cd "$SOURCE_DIR"
 rm -rf ./dist
 
 
-pip3 install build twine
+# pip3 install build twine
 python3 -m build --no-isolation
 twine check dist/*
 twine upload --repository testpypi dist/*
