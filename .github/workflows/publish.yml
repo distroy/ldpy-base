@@ -1,0 +1,119 @@
+name: Publish to PyPI
+
+# 合并到 master 后自动运行：
+#   1. 读取 pyproject.toml 中的 version
+#   2. 校验版本格式（只允许 0.0.4 或 0.0.4.post1 两种）
+#   3. 若对应 tag 不存在，则自动打 tag 并推送
+#   4. 构建并发布到 PyPI
+on:
+  push:
+    branches:
+      - master
+
+# 允许 workflow 创建 tag（写入仓库内容）
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # 使用 PyPI Trusted Publishing（OIDC），无需在仓库配置 API token
+    environment: pypi
+    concurrency:
+      group: publish-pypi
+      cancel-in-progress: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read and validate version
+        id: version
+        run: |
+          set -euo pipefail
+
+          # 从 pyproject.toml 的 [project] 段提取 version（取第一行匹配）
+          RAW_VERSION="$(grep -E '^[[:space:]]*version[[:space:]]*=' pyproject.toml | head -n1 | sed -E 's/.*=[[:space:]]*["'"'"']([^"'"'"']+)["'"'"'].*/\1/')"
+          echo "Raw version from pyproject.toml: '${RAW_VERSION}'"
+
+          if [ -z "${RAW_VERSION}" ]; then
+            echo "::error::无法从 pyproject.toml 中解析 version"
+            exit 1
+          fi
+
+          # 版本格式校验：只允许两种
+          #   1) 纯版本号：      X.Y.Z            例如 0.0.4
+          #   2) post release：  X.Y.Z.postN      例如 0.0.4.post1
+          if [[ ! "${RAW_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(\.post[0-9]+)?$ ]]; then
+            echo "::error::版本格式非法: '${RAW_VERSION}'。只允许 '0.0.4' 或 '0.0.4.post1' 两种格式。"
+            exit 1
+          fi
+
+          # tag 名沿用仓库既有约定：直接使用版本号本身（无 v 前缀）。
+          # .postN 是合法的 PEP 440 版本，PyPI 直接接受，无需任何改写，
+          # 因此 tag、GitHub Release、PyPI 三处版本号完全一致。
+          TAG_NAME="${RAW_VERSION}"
+
+          echo "raw_version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}"       >> "$GITHUB_OUTPUT"
+
+          echo "校验通过：version='${RAW_VERSION}'"
+
+      - name: Check tag existence
+        id: tagcheck
+        run: |
+          set -euo pipefail
+          TAG_NAME="${{ steps.version.outputs.tag_name }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Tag '${TAG_NAME}' 已存在，跳过后续打 tag 与发布。"
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag '${TAG_NAME}' 不存在，将创建并发布。"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create and push tag
+        if: steps.tagcheck.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          TAG_NAME="${{ steps.version.outputs.tag_name }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG_NAME}" -m "Release ${TAG_NAME}"
+          git push origin "refs/tags/${TAG_NAME}"
+
+      - name: Set up Python
+        if: steps.tagcheck.outputs.exists == 'false'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Build package
+        if: steps.tagcheck.outputs.exists == 'false'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip build
+
+          rm -rf ./dist
+          python -m build
+
+          python -m pip install --upgrade twine
+          twine check dist/*
+
+      - name: Publish to PyPI
+        if: steps.tagcheck.outputs.exists == 'false'
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create GitHub Release with build artifacts
+        if: steps.tagcheck.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          # 在对应 tag 上创建 GitHub Release，并把构建产物（.whl 与 sdist .tar.gz）
+          # 作为可下载附件上传。GitHub 会额外自动附带 Source code (zip/tar.gz)。
+          gh release create "${TAG_NAME}" dist/* \
+            --title "${TAG_NAME}" \
+            --notes "Automated release for ${TAG_NAME}"
