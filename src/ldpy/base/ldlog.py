@@ -35,7 +35,12 @@ class WithLog(object):
         self._logger = logger
 
     def end_tags(self, end_tags: 'Optional[Dict]'):
-        self._end_tags = end_tags
+        if not end_tags:
+            return
+        if not self._end_tags:
+            self._end_tags = end_tags
+        else:
+            self._end_tags.update(end_tags)
 
     def _log_func(self, msg: 'str', stacklevel: 'int', exc_info: 'Optional[Exception]' = None):
         if self._logger:
@@ -54,7 +59,7 @@ class WithLog(object):
         self._begin = time.time()
         tags = self._begin_tags
         self._begin_tags = None
-        if not tags:
+        if not tags or len(tags) == 0:
             self._log_func(f' === with log begin. name:{self._name}',
                            stacklevel=1)
         else:
@@ -66,7 +71,7 @@ class WithLog(object):
         cost = time.time() - self._begin
         tags = self._end_tags
         self._end_tags = None
-        if not tags:
+        if not tags or len(tags) == 0:
             self._log_func(f' === with log end. name:{self._name}, cost:{cost}s',
                            stacklevel=1, exc_info=exc_value)
         else:
