@@ -59,6 +59,15 @@ class Service(Generic[P, R]):
     def _stop(self):
         self._running = False
 
+    def _run_post_fork_funcs(self):
+        # 在 worker 进程内、fork 之后，逐个执行初始化钩子。
+        # 单个钩子失败不应拖垮 worker：记录异常后继续，把最终是否可用交给 worker 自身的加载逻辑。
+        logid = self._logid
+        for func in self._base._post_fork_funcs:
+            name = getattr(func, '__name__', repr(func))
+            with ldlog.WithLog(f'{logid} post_fork_func {name}', ignore_exc=True):
+                func()
+
     def run(self):
         backgrounds.start()
         self._running = True
@@ -73,8 +82,7 @@ class Service(Generic[P, R]):
         th.daemon = True
         th.start()
 
-        for func in self._base._post_fork_funcs:
-            func()
+        self._run_post_fork_funcs()
 
         self._sock.settimeout(1.0)
 
@@ -164,8 +172,10 @@ def start(worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[
     s = Service(worker_num, sock, base)
 
     worker_cls = base._worker_cls
-    proc_title = f'call: worker [{worker_cls.name()}]'
-    setproctitle.setproctitle(proc_title)
+    # macOS: fork 后不 exec 直接调用 setproctitle 会走 CoreFoundation 导致段错误，故跳过
+    if sys.platform != 'darwin':
+        proc_title = f'call: worker [{worker_cls.name()}]'
+        setproctitle.setproctitle(proc_title)
 
     s.run()
     sys.exit(0)

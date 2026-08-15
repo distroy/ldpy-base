@@ -98,10 +98,21 @@ class CallMaster(Generic[P, R]):
 
         logging.info(f'{self._logid} run begin')
         try:
+            self._run_pre_fork_funcs()
+
             self._run()
         finally:
             lock.unlock()
             logging.info(f'{self._logid} run end')
+
+    def _run_pre_fork_funcs(self):
+        # 在 master 进程内、fork 任何 worker 之前，逐个执行预加载钩子。
+        # 单个钩子失败不应拖垮 master：记录异常后继续，把最终是否可用交给 worker 自身的加载逻辑。
+        logid = self._logid
+        for func in self._base._pre_fork_funcs:
+            name = getattr(func, '__name__', repr(func))
+            with ldlog.WithLog(f'{logid} pre_fork_func {name}', ignore_exc=True):
+                func()
 
     def _run(self):
         sock = self._listen()
@@ -256,8 +267,10 @@ def start(base: 'call_worker.CallBase[P, R]'):
         sys.exit(0)
 
     # in child
-    proc_title = f'call: master [{base.name()}]'
-    setproctitle.setproctitle(proc_title)
+    # macOS: fork 后不 exec 直接调用 setproctitle 会走 CoreFoundation 导致段错误，故跳过
+    if sys.platform != 'darwin':
+        proc_title = f'call: master [{base.name()}]'
+        setproctitle.setproctitle(proc_title)
 
     with ldlog.WithLog('close_all_socket'):
         close_all_socket(skip_fds=_logging_fds())
