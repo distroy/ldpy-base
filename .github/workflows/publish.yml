@@ -108,15 +108,63 @@ jobs:
         if: steps.tagcheck.outputs.exists == 'false'
         uses: pypa/gh-action-pypi-publish@release/v1
 
+      - name: Generate release notes from merged PRs
+        if: steps.tagcheck.outputs.exists == 'false'
+        id: notes
+        env:
+          TAG_NAME: ${{ steps.version.outputs.tag_name }}
+        run: |
+          set -euo pipefail
+          # 汇总「上一个 tag 之后」合并进主线的所有 MR/PR，作为本次发布说明。
+          # 这里的 PR 都以标准 merge commit（"Merge pull request #NN ..."）方式合入，
+          # 因此可以从 merge commit 的 subject 取 PR 编号、从 body 首行取 PR 标题。
+
+          # 找出上一个版本 tag：在当前 HEAD 的祖先里，按版本号降序排除本次 tag 后的第一个。
+          PREV_TAG="$(git tag --sort=-v:refname --merged HEAD | grep -v -x "${TAG_NAME}" | head -n1 || true)"
+          if [ -n "${PREV_TAG}" ]; then
+            echo "上一个 tag: ${PREV_TAG}"
+            RANGE="${PREV_TAG}..HEAD"
+          else
+            echo "未找到上一个 tag，纳入全部历史。"
+            RANGE="HEAD"
+          fi
+
+          NOTES_FILE="release_notes.md"
+          {
+            echo "## What's Changed"
+            echo
+            git log --merges --first-parent --pretty=format:'%H' "${RANGE}" | while IFS= read -r sha; do
+              [ -z "${sha}" ] && continue
+              subject="$(git show -s --format='%s' "${sha}")"
+              pr_num="$(printf '%s' "${subject}" | sed -nE 's/^Merge pull request #([0-9]+).*/\1/p')"
+              # 只收录能识别出 PR 编号的 merge commit（跳过普通的分支合并）。
+              [ -z "${pr_num}" ] && continue
+              title="$(git show -s --format='%b' "${sha}" | sed -e '/^[[:space:]]*$/d' | head -n1)"
+              [ -z "${title}" ] && title="${subject}"
+              printf -- '- %s (#%s)\n' "${title}" "${pr_num}"
+            done
+          } > "${NOTES_FILE}"
+
+          # 兜底：若区间内没有任何可识别的 PR，避免生成空说明。
+          if [ "$(wc -l < "${NOTES_FILE}")" -le 2 ]; then
+            printf 'Automated release for %s\n' "${TAG_NAME}" > "${NOTES_FILE}"
+          fi
+
+          echo "----- release notes -----"
+          cat "${NOTES_FILE}"
+          echo "notes_file=${NOTES_FILE}" >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release with build artifacts
         if: steps.tagcheck.outputs.exists == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ steps.version.outputs.tag_name }}
+          NOTES_FILE: ${{ steps.notes.outputs.notes_file }}
         run: |
           set -euo pipefail
           # 在对应 tag 上创建 GitHub Release，并把构建产物（.whl 与 sdist .tar.gz）
           # 作为可下载附件上传。GitHub 会额外自动附带 Source code (zip/tar.gz)。
+          # 发布说明来自上一步汇总的 MR/PR 列表。
           gh release create "${TAG_NAME}" dist/* \
             --title "${TAG_NAME}" \
-            --notes "Automated release for ${TAG_NAME}"
+            --notes-file "${NOTES_FILE}"
