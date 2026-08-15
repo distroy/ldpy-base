@@ -98,10 +98,21 @@ class CallMaster(Generic[P, R]):
 
         logging.info(f'{self._logid} run begin')
         try:
+            self._run_pre_fork_funcs()
+
             self._run()
         finally:
             lock.unlock()
             logging.info(f'{self._logid} run end')
+
+    def _run_pre_fork_funcs(self):
+        # 在 master 进程内、fork 任何 worker 之前，逐个执行预加载钩子。
+        # 单个钩子失败不应拖垮 master：记录异常后继续，把最终是否可用交给 worker 自身的加载逻辑。
+        logid = self._logid
+        for func in self._base._pre_fork_funcs:
+            name = getattr(func, '__name__', repr(func))
+            with ldlog.WithLog(f'{logid} pre_fork_func {name}', ignore_exc=True):
+                func()
 
     def _run(self):
         sock = self._listen()
