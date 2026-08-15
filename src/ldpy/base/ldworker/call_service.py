@@ -172,8 +172,10 @@ def start(worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[
     s = Service(worker_num, sock, base)
 
     worker_cls = base._worker_cls
-    proc_title = f'call: worker [{worker_cls.name()}]'
-    setproctitle.setproctitle(proc_title)
+    # macOS: fork 后不 exec 直接调用 setproctitle 会走 CoreFoundation 导致段错误，故跳过
+    if sys.platform != 'darwin':
+        proc_title = f'call: worker [{worker_cls.name()}]'
+        setproctitle.setproctitle(proc_title)
 
     s.run()
     sys.exit(0)
