@@ -10,9 +10,12 @@ on:
     branches:
       - master
 
-# 允许 workflow 创建 tag（写入仓库内容）
+# 允许 workflow 创建 tag（写入仓库内容），并申请 OIDC token 用于 PyPI 可信发布。
+# 注意：一旦显式声明 permissions，未列出的权限都会被置为 none，
+# 因此这里必须同时列出 id-token: write，否则 Trusted Publishing 会失败。
 permissions:
   contents: write
+  id-token: write
 
 jobs:
   publish:
