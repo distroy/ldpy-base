@@ -9,7 +9,7 @@ import functools
 import logging
 import time
 from collections import OrderedDict
-from typing import Any, Callable, Tuple, TypeVar
+from typing import Any, Callable, Optional, Tuple, TypeVar
 
 try:
     from typing import ParamSpec
@@ -20,10 +20,12 @@ P = ParamSpec('P')
 T = TypeVar('T')
 
 class Lru(object):
-    def __init__(self, size: 'int' = 128, ttl: 'int' = 60, log_interval_times=0):
+    def __init__(self, size: 'int' = 128, ttl: 'int' = 60, log_interval_times=0,
+                 key_func: 'Optional[Callable[P, Any]]' = None):
         self.maxsize = size
         self.ttl = ttl
         self.log_interval_times = log_interval_times
+        self.key_func = key_func
         self._cache = OrderedDict()
         self.hits = 0
         self.misses = 0
@@ -55,7 +57,9 @@ class Lru(object):
         setattr(wrapper, 'lru', self)
         return wrapper
 
-    def _make_key(self, args, kwargs) -> 'Tuple':
+    def _make_key(self, args, kwargs) -> 'Any':
+        if self.key_func is not None:
+            return self.key_func(*args, **kwargs)
         return (args, tuple(sorted(kwargs.items())))
 
     def _get_key(self, key) -> 'Tuple[Any, bool]':
@@ -63,7 +67,8 @@ class Lru(object):
             return None, False
 
         result, timestamp = self._cache[key]
-        if time.time() - timestamp > self.ttl:
+        # ttl <= 0 表示不限制保存时间，缓存永不过期
+        if self.ttl > 0 and time.time() - timestamp > self.ttl:
             del self._cache[key]
             return None, False
 
