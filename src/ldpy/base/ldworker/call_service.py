@@ -17,15 +17,21 @@ from typing import Generic, TypeVar
 import psutil
 import setproctitle
 
+try:
+    from typing import ParamSpec
+except ImportError:
+    from typing_extensions import ParamSpec
+
 from .. import ldlog
 from . import conn, call_worker
 
 
-RES = TypeVar('RES')
+P = ParamSpec('P')
+R = TypeVar('R')
 
 
-class Service(Generic[RES]):
-    def __init__(self, worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[RES]'):
+class Service(Generic[P, R]):
+    def __init__(self, worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[P, R]'):
         super().__init__()
 
         self._base = base
@@ -53,6 +59,15 @@ class Service(Generic[RES]):
     def _stop(self):
         self._running = False
 
+    def _run_post_fork_funcs(self):
+        # 在 worker 进程内、fork 之后，逐个执行初始化钩子。
+        # 单个钩子失败不应拖垮 worker：记录异常后继续，把最终是否可用交给 worker 自身的加载逻辑。
+        logid = self._logid
+        for func in self._base._post_fork_funcs:
+            name = getattr(func, '__name__', repr(func))
+            with ldlog.WithLog(f'{logid} post_fork_func {name}', ignore_exc=True):
+                func()
+
     def run(self):
         backgrounds.start()
         self._running = True
@@ -67,8 +82,7 @@ class Service(Generic[RES]):
         th.daemon = True
         th.start()
 
-        for func in self._base._post_fork_funcs:
-            func()
+        self._run_post_fork_funcs()
 
         self._sock.settimeout(1.0)
 
@@ -121,19 +135,19 @@ class Service(Generic[RES]):
         req = call_worker.CallRequest.decode(req_raw)
 
         if req.command == call_worker.CMD_INIT:
-            rsp = call_worker.CallResponse[RES]()
+            rsp = call_worker.CallResponse[R]()
         elif req.command == call_worker.CMD_CALL:
             rsp = self._process_request(req)
         else:
             msg = f'invalid command. cmd:{req.command}, worker:{self._name}'
             logging.error(msg)
             exc = Exception(msg)
-            rsp = call_worker.CallResponse[RES](exc=exc)
+            rsp = call_worker.CallResponse[R](exc=exc)
 
         rsp_raw = call_worker.CallResponse.encode(rsp)
         c.send(rsp_raw)
 
-    def _process_request(self, req: 'call_worker.CallRequest') -> 'call_worker.CallResponse[RES]':
+    def _process_request(self, req: 'call_worker.CallRequest') -> 'call_worker.CallResponse[R]':
         logid = self._logid
 
         with ldlog.WithLog(f'call worker process [{self._name}]'):
@@ -141,14 +155,14 @@ class Service(Generic[RES]):
                 # res = self._worker.process(*req.args, **req.kwargs)
                 res = self._process_func(*req.args, **req.kwargs)
                 logging.info(f'{logid} process request succ')
-                return call_worker.CallResponse[RES](res=res)
+                return call_worker.CallResponse[R](res=res)
 
             except Exception as exc:
                 logging.error(f'{logid} process request panic', exc_info=exc)
-                return call_worker.CallResponse[RES](exc=exc)
+                return call_worker.CallResponse[R](exc=exc)
 
 
-def start(worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[RES]') -> 'int':
+def start(worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[P, R]') -> 'int':
     pid = os.fork()
     if pid > 0:
         # in parent
@@ -158,8 +172,10 @@ def start(worker_num: 'int', sock: 'socket.socket', base: 'call_worker.CallBase[
     s = Service(worker_num, sock, base)
 
     worker_cls = base._worker_cls
-    proc_title = f'call: worker [{worker_cls.name()}]'
-    setproctitle.setproctitle(proc_title)
+    # macOS: fork 后不 exec 直接调用 setproctitle 会走 CoreFoundation 导致段错误，故跳过
+    if sys.platform != 'darwin':
+        proc_title = f'call: worker [{worker_cls.name()}]'
+        setproctitle.setproctitle(proc_title)
 
     s.run()
     sys.exit(0)

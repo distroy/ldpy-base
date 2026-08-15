@@ -15,12 +15,18 @@ import signal
 import socket
 import stat
 import sys
-from typing import Generic, List, TypeVar
+from typing import Generic, List, Optional, TypeVar
+
+try:
+    from typing import ParamSpec
+except ImportError:
+    from typing_extensions import ParamSpec
 
 from .. import ldlog
 from . import call_service, call_worker
 
-RES = TypeVar('RES')
+P = ParamSpec('P')
+R = TypeVar('R')
 
 
 class Lock(object):
@@ -55,8 +61,8 @@ class Lock(object):
             lock_fd.close()
 
 
-class CallMaster(Generic[RES]):
-    def __init__(self, base: 'call_worker.CallBase[RES]'):
+class CallMaster(Generic[P, R]):
+    def __init__(self, base: 'call_worker.CallBase[P, R]'):
         super().__init__()
 
         self._base = base
@@ -92,10 +98,21 @@ class CallMaster(Generic[RES]):
 
         logging.info(f'{self._logid} run begin')
         try:
+            self._run_pre_fork_funcs()
+
             self._run()
         finally:
             lock.unlock()
             logging.info(f'{self._logid} run end')
+
+    def _run_pre_fork_funcs(self):
+        # 在 master 进程内、fork 任何 worker 之前，逐个执行预加载钩子。
+        # 单个钩子失败不应拖垮 master：记录异常后继续，把最终是否可用交给 worker 自身的加载逻辑。
+        logid = self._logid
+        for func in self._base._pre_fork_funcs:
+            name = getattr(func, '__name__', repr(func))
+            with ldlog.WithLog(f'{logid} pre_fork_func {name}', ignore_exc=True):
+                func()
 
     def _run(self):
         sock = self._listen()
@@ -196,14 +213,39 @@ def _is_socket(fd: int):
     return True
 
 
-def close_all_socket():
+def _logging_fds() -> 'set':
+    fds = set()
+    loggers = [logging.getLogger()]
+    for name in list(logging.root.manager.loggerDict):
+        lg = logging.getLogger(name)
+        if isinstance(lg, logging.Logger):
+            loggers.append(lg)
+
+    for lg in loggers:
+        for h in getattr(lg, 'handlers', []):
+            for attr in ('sock', 'socket', 'stream'):
+                obj = getattr(h, attr, None)
+                if obj is None:
+                    continue
+                try:
+                    fds.add(obj.fileno())
+                except (OSError, ValueError, AttributeError):
+                    pass
+    return fds
+
+
+def close_all_socket(skip_fds: 'Optional[set]' = None):
     try:
         max_fd = os.sysconf('SC_OPEN_MAX')
     except (ValueError, OSError):
         max_fd = 1024   # 常见系统的安全上限
 
+    skip_fds = skip_fds or set()
+
     # skip stdin(0), stdout(1), stderr(2)
     for fd in range(3, max_fd):
+        if fd in skip_fds:
+            continue
         try:
             if _is_socket(fd):
                 os.close(fd)
@@ -211,7 +253,7 @@ def close_all_socket():
             pass
 
 
-def start(base: 'call_worker.CallBase[RES]'):
+def start(base: 'call_worker.CallBase[P, R]'):
     # wait + fork 2次，避免僵尸进程
     pid = os.fork()
     if pid > 0:
@@ -225,11 +267,13 @@ def start(base: 'call_worker.CallBase[RES]'):
         sys.exit(0)
 
     # in child
-    proc_title = f'call: master [{base.name()}]'
-    setproctitle.setproctitle(proc_title)
+    # macOS: fork 后不 exec 直接调用 setproctitle 会走 CoreFoundation 导致段错误，故跳过
+    if sys.platform != 'darwin':
+        proc_title = f'call: master [{base.name()}]'
+        setproctitle.setproctitle(proc_title)
 
     with ldlog.WithLog('close_all_socket'):
-        close_all_socket()
+        close_all_socket(skip_fds=_logging_fds())
 
     mgr = CallMaster(base)
     mgr.run()

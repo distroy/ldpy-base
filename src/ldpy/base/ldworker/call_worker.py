@@ -10,12 +10,18 @@ import multiprocessing.reduction
 import os
 from typing import Callable, Dict, Generic, List, Optional, Protocol, Type, TypeVar
 
+try:
+    from typing import ParamSpec, Concatenate
+except ImportError:
+    from typing_extensions import ParamSpec, Concatenate
+
 PICKLER = multiprocessing.reduction.ForkingPickler
 
-RES = TypeVar('RES')
+P = ParamSpec('P')
+R = TypeVar('R')
 
 
-class CallWorker(Protocol[RES]):
+class CallWorker(Protocol[P, R]):
     @classmethod
     def name(cls) -> str: ...
     @classmethod
@@ -25,26 +31,31 @@ class CallWorker(Protocol[RES]):
     @classmethod
     def start_timeout(cls) -> int: ...
 
-    def process(self, *args, **kwargs) -> 'RES': ...
+    def process(self, *args: 'P.args', **kwargs: 'P.kwargs') -> 'R': ...
 
 
-class CallMidware(Protocol[RES]):
-    def __call__(self, *args, next: 'Callable[..., RES]', **kwargs) -> 'RES':
+NextFunc = Callable[P, R]
+
+class CallMidware(Protocol[P, R]):
+    # midware 的语义契约：第一个参数是 next（与 process 同签名），其余参数与 process 保持一致。
+    # 实际接收处统一用 `Callable[Concatenate[NextFunc[P, R], P], R]`，以便 IDE 悬停时展开出完整签名。
+    def __call__(self, next: 'NextFunc[P, R]', *args: 'P.args', **kwargs: 'P.kwargs') -> 'R':
         ...
 
 
-class CallClient(Protocol[RES]):
+class CallClient(Protocol[P, R]):
     def name(self) -> str: ...
     def add_post_fork_func(self, func: 'Callable[[], None]'): ...
-    def add_server_midware(self, mw: 'CallMidware[RES]'): ...
-    def add_client_midware(self, mw: 'CallMidware[RES]'): ...
+    def add_pre_fork_func(self, func: 'Callable[[], None]'): ...
+    def add_server_midware(self, mw: 'Callable[Concatenate[NextFunc[P, R], P], R]'): ...
+    def add_client_midware(self, mw: 'Callable[Concatenate[NextFunc[P, R], P], R]'): ...
     def start(self): ...
     def connect(self): ...
-    def process(self, *args, **kwargs) -> 'RES': ...
+    def process(self, *args: 'P.args', **kwargs: 'P.kwargs') -> 'R': ...
 
 
-class CallBase(Generic[RES]):
-    def __init__(self, worker_cls: 'Type[CallWorker[RES]]'):
+class CallBase(Generic[P, R]):
+    def __init__(self, worker_cls: 'Type[CallWorker[P, R]]'):
         super().__init__()
 
         name = worker_cls.name()
@@ -59,9 +70,10 @@ class CallBase(Generic[RES]):
         self._master_lock_path = os.path.join(cache_dir, f'{name}-master.lock')
         self._worker_sock_path = os.path.join(cache_dir, f'{name}-worker.sock')
 
+        self._pre_fork_funcs: 'List[Callable[[], None]]' = []
         self._post_fork_funcs: 'List[Callable[[], None]]' = []
-        self._server_midwares: 'List[CallMidware[RES]]' = []
-        self._client_midwares: 'List[CallMidware[RES]]' = []
+        self._server_midwares: 'List[Callable[Concatenate[NextFunc[P, R], P], R]]' = []
+        self._client_midwares: 'List[Callable[Concatenate[NextFunc[P, R], P], R]]' = []
 
     def name(self) -> str:
         return self._name
@@ -69,16 +81,22 @@ class CallBase(Generic[RES]):
     def add_post_fork_func(self, func: 'Callable[[], None]'):
         self._post_fork_funcs.append(func)
 
-    def add_server_midware(self, mw: 'CallMidware[RES]'):
+    def add_pre_fork_func(self, func: 'Callable[[], None]'):
+        self._pre_fork_funcs.append(func)
+
+    def add_server_midware(self, mw: 'Callable[Concatenate[NextFunc[P, R], P], R]'):
         self._server_midwares.append(mw)
 
-    def add_client_midware(self, mw: 'CallMidware[RES]'):
+    def add_client_midware(self, mw: 'Callable[Concatenate[NextFunc[P, R], P], R]'):
         self._client_midwares.append(mw)
 
-    def _build_process_func(self, func: 'Callable[..., RES]', mws: 'List[CallMidware[RES]]'):
-        i = len(mws)
+    def _build_process_func(self, func: 'NextFunc[P, R]', mws: 'List[Callable[Concatenate[NextFunc[P, R], P], R]]') -> 'Callable[P, R]':
         def get_next_func(next, mw):
-            return lambda *args, **kwargs: mw(*args, next=next, **kwargs)
+            def next_func(*args: 'P.args', **kwargs: 'P.kwargs'):
+                return mw(next, *args, **kwargs)
+            return next_func
+
+        i = len(mws)
         while i > 0:
             i -= 1
             mw = mws[i]
@@ -109,18 +127,18 @@ class CallRequest(object):
         return bytes(raw)
 
 
-class CallResponse(Generic[RES]):
-    def __init__(self, exc: 'Optional[Exception]' = None, res: 'Optional[RES]' = None) -> None:
+class CallResponse(Generic[R]):
+    def __init__(self, exc: 'Optional[Exception]' = None, res: 'Optional[R]' = None) -> None:
         super().__init__()
 
         self.exc = exc
         self.res = res
 
     @classmethod
-    def decode(cls, raw: 'bytes') -> 'CallResponse[RES]':
+    def decode(cls, raw: 'bytes') -> 'CallResponse[R]':
         return PICKLER.loads(raw)
 
     @classmethod
-    def encode(cls, obj: 'CallResponse[RES]') -> 'bytes':
+    def encode(cls, obj: 'CallResponse[R]') -> 'bytes':
         raw = PICKLER.dumps(obj)
         return bytes(raw)

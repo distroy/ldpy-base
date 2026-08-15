@@ -24,11 +24,11 @@ class TestWorker(CallWorkerBase):
         return a / b, a % b
 
 
-def server_midware(*args, next: 'Callable', **kwargs):
+def server_midware(next: 'Callable', *args, **kwargs):
     with ldlog.WithLog('server_midware'):
         return next(*args, **kwargs)
 
-def client_midware(*args, next: 'Callable', **kwargs):
+def client_midware(next: 'Callable', *args, **kwargs):
     with ldlog.WithLog('client_midware'):
         return next(*args, **kwargs)
 
@@ -36,14 +36,16 @@ def client_midware(*args, next: 'Callable', **kwargs):
 def main():
     cli = new_call(TestWorker)
 
+    cli.add_pre_fork_func(lambda: logging.info(f'worker will start. pid:{os.getpid()}'))
+    cli.add_post_fork_func(lambda: logging.info(f'worker has started. pid:{os.getpid()}'))
     cli.add_client_midware(client_midware)
     cli.add_server_midware(server_midware)
-    cli.add_post_fork_func(lambda: logging.info(f'worker has started. pid:{os.getpid()}'))
 
     cli.start()
     cli.connect()
 
     locals = {'cli': cli}
+    cli.process
     log('cli.process(1, 2)', locals=locals)
     log('cli.process(a=1, b=0)', locals=locals)
 

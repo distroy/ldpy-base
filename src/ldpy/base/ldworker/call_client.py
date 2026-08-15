@@ -13,16 +13,19 @@ import select
 import time
 from typing import Type, TypeVar
 
-# import bytedance.context
-# from euler.errors import EulerError
+try:
+    from typing import ParamSpec
+except ImportError:
+    from typing_extensions import ParamSpec
 
 from . import conn, call_worker, call_master
 
-RES = TypeVar('RES')
+P = ParamSpec('P')
+R = TypeVar('R')
 
 
-class CallClientImpl(call_worker.CallBase[RES]):
-    def __init__(self, worker_cls: 'Type[call_worker.CallWorker[RES]]'):
+class CallClientImpl(call_worker.CallBase[P, R]):
+    def __init__(self, worker_cls: 'Type[call_worker.CallWorker[P, R]]'):
         super().__init__(worker_cls)
 
         pid = os.getpid()
@@ -56,7 +59,7 @@ class CallClientImpl(call_worker.CallBase[RES]):
                     # logging.info(f'{logid} send succ')
 
                     rsp_raw = c.recv()
-                    rsp = call_worker.CallResponse[RES].decode(rsp_raw)
+                    rsp = call_worker.CallResponse[R].decode(rsp_raw)
                     logging.info(f'{logid} connect to call worker succ')
                     return
 
@@ -111,10 +114,10 @@ class CallClientImpl(call_worker.CallBase[RES]):
         raise TimeoutError(
             f'connect to call worker timeout. timeout:{timeout}s')
 
-    def process(self, *args, **kwargs) -> 'RES':
+    def process(self, *args: 'P.args', **kwargs: 'P.kwargs') -> 'R':
         return self._process_func(*args, **kwargs)
 
-    def _process(self, *args, **kwargs) -> 'RES':
+    def _process(self, *args: 'P.args', **kwargs: 'P.kwargs') -> 'R':
         # logid = bytedance.context.get('logid')
         req = call_worker.CallRequest(args=list(args), kwargs=kwargs)
         req_raw = call_worker.CallRequest.encode(req)
@@ -135,7 +138,7 @@ class CallClientImpl(call_worker.CallBase[RES]):
                               exc_info=exc)
                 raise exc
 
-        rsp = call_worker.CallResponse[RES].decode(rsp_raw)
+        rsp = call_worker.CallResponse[R].decode(rsp_raw)
         if rsp.exc:
             raise rsp.exc
 
@@ -235,8 +238,8 @@ def _to_print(obj, seen=None):
         seen.remove(obj_id)
 
 
-def new_call(worker_cls: 'Type[call_worker.CallWorker[RES]]', start=False, connect=False) -> 'call_worker.CallClient[RES]':
-    cli = CallClientImpl[RES](worker_cls)
+def new_call(worker_cls: 'Type[call_worker.CallWorker[P, R]]', start=False, connect=False) -> 'call_worker.CallClient[P, R]':
+    cli = CallClientImpl(worker_cls)
     if start or connect:
         cli.start()
     if connect:
