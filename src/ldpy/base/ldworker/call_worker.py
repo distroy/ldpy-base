@@ -21,6 +21,34 @@ P = ParamSpec('P')
 R = TypeVar('R')
 
 
+# proc title 生成函数的签名：接收 (type, name)，返回最终进程标题。
+#   type -> 'master' | 'worker'
+#   name -> worker 的名字
+ProcTitleFunc = Callable[[str, str], str]
+
+
+def _default_proc_title_func(type: 'str', name: 'str') -> 'str':
+    # 默认实现，保持既有行为不变：
+    #   master 进程 -> "call: master [xxx]"
+    #   worker 进程 -> "call: worker [xxx]"
+    return f'call: {type} [{name}]'
+
+
+_proc_title_func: 'ProcTitleFunc' = _default_proc_title_func
+
+
+def set_proc_title_func(func: 'ProcTitleFunc') -> 'None':
+    '''全局注入 proc title 生成函数。func 接收 (type, name) 并返回进程标题，
+    对之后 fork 出的所有 master/worker 进程生效。传入 None 恢复默认实现。'''
+    global _proc_title_func
+    _proc_title_func = func or _default_proc_title_func
+
+
+def make_proc_title(type: 'str', name: 'str') -> 'str':
+    '''按当前生效的生成函数产出进程标题，供 master/worker 启动时设置进程名。'''
+    return _proc_title_func(type, name)
+
+
 class CallWorker(Protocol[P, R]):
     @classmethod
     def name(cls) -> str: ...

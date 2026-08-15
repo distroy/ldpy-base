@@ -269,7 +269,7 @@ def start(base: 'call_worker.CallBase[P, R]'):
     # in child
     # macOS: fork 后不 exec 直接调用 setproctitle 会走 CoreFoundation 导致段错误，故跳过
     if sys.platform != 'darwin':
-        proc_title = f'call: master [{base.name()}]'
+        proc_title = call_worker.make_proc_title('master', base.name())
         setproctitle.setproctitle(proc_title)
 
     with ldlog.WithLog('close_all_socket'):

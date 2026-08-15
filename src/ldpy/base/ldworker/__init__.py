@@ -8,7 +8,7 @@
 import logging
 from .. import ldenv
 from .call_client import new_call
-from .call_worker import PICKLER
+from .call_worker import PICKLER, ProcTitleFunc, set_proc_title_func
 
 DEFAULT_START_TIMEOUT = 600
 
@@ -62,4 +62,7 @@ __all__ = [
     'new_call',
     'CallWorkerBase',
     'PICKLER',
+    'ProcTitleFunc',
+    'set_proc_title_func',
+    'make_proc_title',
 ]
