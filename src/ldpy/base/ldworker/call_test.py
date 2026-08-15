@@ -36,9 +36,10 @@ def client_midware(next: 'Callable', *args, **kwargs):
 def main():
     cli = new_call(TestWorker)
 
+    cli.add_pre_fork_func(lambda: logging.info(f'worker will start. pid:{os.getpid()}'))
+    cli.add_post_fork_func(lambda: logging.info(f'worker has started. pid:{os.getpid()}'))
     cli.add_client_midware(client_midware)
     cli.add_server_midware(server_midware)
-    cli.add_post_fork_func(lambda: logging.info(f'worker has started. pid:{os.getpid()}'))
 
     cli.start()
     cli.connect()
